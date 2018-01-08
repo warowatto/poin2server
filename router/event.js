@@ -13,5 +13,4 @@ router.get(['/', '/:id'], (req, res) => {
 });
 // 이벤트 단일 목록
 
-
 module.exports = router;
