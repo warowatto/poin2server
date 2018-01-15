@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const db = require('../utils/database');
+const db = require('../module/DatabaseModule');
 
 // 업체 정보 가져오기
 router.get('/:id', (req, res) => {

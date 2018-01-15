@@ -1,9 +1,6 @@
-"use strict";
-
 const Rx = require('rxjs');
 const mysql = require('mysql');
-const serviceQuery = require('./query');
-const enc = require('./encrypt');
+const enc = require('./EncrytionModule');
 
 const pool = mysql.createPool({
     host: 'localhost',
@@ -12,7 +9,6 @@ const pool = mysql.createPool({
     database: 'poin'
 });
 
-// db 질의 요청
 function dbQuery(query, params, callback) {
     pool.getConnection((err, connect) => {
         connect.query(query, [params], (err, results) => {
