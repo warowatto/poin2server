@@ -14,6 +14,15 @@ const Observable = require('rxjs').Observable;
 const Iamport = require('iamporter');
 const IamporterError = Iamport.IamporterError;
 
+const apiKey = '';
+const secret = '';
+
+// To Services
+// const iamporter = new Iamport.Iamporter({
+//     apiKey: apiKey,
+//     secret: secret
+// });
+
 const iamporter = new Iamport.Iamporter();
 
 // 빌링키 생성
@@ -39,11 +48,9 @@ function registCard(customer_uid, card_number, expiry, birth, pwd_2digit) {
                 'birth': birth,
                 'pwd_2digit': pwd_2digit
             }).then(result => {
-                console.log(result);
                 e.next(result);
                 e.complete();
             }).catch(err => {
-                console.log(err);
                 e.error(err);
                 e.complete();
             });
@@ -87,11 +94,11 @@ function payment(customer_uid, merchant_uid, amount) {
 
 // 결제 취소 후 계좌 환불
 // iamport의 거래번호와 사유입력
-function payback(imp_uid, reason) {
+function payback(merchant_uid, reason) {
     return Observable.create(e => {
         iamporter.cancel({
-            'imp_uid': 'imp_448280090638',
-            'reason': '제품 상태 불량'
+            'merchant_uid': merchant_uid,
+            'reason': reason
         }).then(result => {
             e.next(result);
             e.complete();

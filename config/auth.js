@@ -1,13 +1,24 @@
 const passport = require('passport');
 const DigestStrategy = require('passport-http').DigestStrategy;
-const userList = require('../config/RestApiAuth');
+
+// production
+// var user = {
+//     payot: process.env.DIGEST_SUPER_ADMIN,
+//     mobile: process.env.DIGEST_MOBILE_CLIENT,
+//     company: process.env.DIGEST_COMPANY_CLIENT
+// }
+
+// development
+var user = {
+    payot: '71511b9ea252',
+    mobile: process.env.DIGEST_MOBILE_CLIENT,
+    company: process.env.DIGEST_COMPANY_CLIENT
+}
 
 passport.use(new DigestStrategy({ qop: 'auth' },
     (username, done) => {
-        let user = userList.filter(apiUser => { return apiUser.name == username; })[0];
-        console.log(username);
-        if (user) {
-            done(null, user.name, user.password);
+        if (username in user) {
+            done(null, username, user[username]);
         } else {
             done(null, false);
         }

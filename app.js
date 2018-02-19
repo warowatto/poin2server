@@ -6,6 +6,14 @@ const middleware = require(path.join(__dirname, 'config/middleware'))(app);
 const auth = require(path.join(__dirname, 'config/auth'))(app);
 const routers = require(path.join(__dirname, 'config/router'))(app);
 
-app.listen(3000, () => {
-    console.log('http://localhost:3000');
+app.get('/', (req, res) => {
+    res.status(200).json({ message: 'Poin Service에 오신것을 환영합니다.'});
+});
+
+console.log(process.env.poin_env);
+
+let port = process.env.PORT || 3000;
+
+app.listen(port, () => {
+    console.log('http://localhost:' + port);
 });

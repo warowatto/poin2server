@@ -1,36 +1,47 @@
 const Rx = require('rxjs');
 const mysql = require('mysql');
-const enc = require('./EncrytionModule');
 
+// production
+// const pool = mysql.createPool({
+//     host: process.env.RDS_HOSTNAME,
+//     user: process.env.RDS_USERNAME,
+//     password: process.env.RDS_PASSWORD,
+//     database: process.env.RDS_DATABASE,
+//     port: process.env.RDS_PORT
+// });
+
+// development
 const pool = mysql.createPool({
-    host: 'localhost',
-    user: 'root',
-    password: 'root',
-    database: 'poin'
+    host: 'aa11kbqrhpc77vp.cjdio7be0ee3.ap-northeast-2.rds.amazonaws.com',
+    user: 'payot',
+    password: 'Vpdldhxl2017',
+    database: 'Poin',
+    port: 3306
 });
 
 function dbQuery(query, params, callback) {
     pool.getConnection((err, connect) => {
-        connect.query(query, [params], (err, results) => {
-            callback(err, results);
-            connect.release();
-        });
+        if (err) console.log(err);
+        else {
+            connect.query(query, [params], (err, results) => {
+                callback(err, results);
+                connect.release();
+            });
+        }
     });
 }
 
 function queryObserver(query, params, nullToError) {
     return Rx.Observable.create(e => {
-        // 질의를 할때는 암호화 하여 동일한 값을 찾기
-        params = enc.object(params, enc.encrypt);
         dbQuery(query, params, (err, rows) => {
             if (err) e.error(err);
             else {
                 if (rows == null || rows.length == 0) {
                     if (nullToError != null) e.error(nullToError);
-                    else e.next(null);
+                    else e.next();
                 } else {
                     rows.forEach(element => {
-                        e.next(enc.object(element, enc.decrypt));
+                        e.next(element);
                     });
                 }
             }
@@ -41,7 +52,6 @@ function queryObserver(query, params, nullToError) {
 
 function updateObserver(query, params) {
     return Rx.Observable.create(e => {
-        parmas = enc.object(params, enc.encrypt);
         dbQuery(query, params, (err, result) => {
             if (err) {
                 e.error(err);
