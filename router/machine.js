@@ -36,11 +36,14 @@ router.get('/:macAddress', (req, res) => {
             return Observable.zip(productsObserver, typeObserver, eventsObserver,
                 (products, type, events) => {
                     machine.type = type;
+                    let isRunning = machine.isRunning == true;
                     delete machine.prodcutId;
+                    delete machine.isRunning;
                     return {
                         machine: machine,
                         products: products,
-                        events: events
+                        events: events,
+                        isRunning: isRunning
                     }
                 });
         })
