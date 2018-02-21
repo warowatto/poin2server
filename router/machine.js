@@ -50,7 +50,7 @@ router.get('/:macAddress', (req, res) => {
                     delete device.companyId;
                     delete device.typeId;
                     
-                    let running = device.isRunning;
+                    let running = device.isRunning == 1 ? true : false;
                     device.type = type.name;
 
                     delete device.isRunning;
