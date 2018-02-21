@@ -1,19 +1,24 @@
 const Observable = require('rxjs').Observable;
 const router = require('express').Router();
+const cleanArray = require('clean-array');
 
 const db = require('../module/DatabaseModule');
 
 // 사용가능한 장치인지 확인
 router.get('/:macAddress', (req, res) => {
     // MAC AA:BB:CC:DD:EE
-    let id = req.params.macAddress;
+    let macAddress = req.params.macAddress;
 
     // 장비조회
     let machineColums = db.colum('*');
-    let machineFindQuery = `SELECT ${machineColums} FROM Machines WHERE macAddress = ? AND isRunning = true`;
+    let machineFindQuery = `SELECT ${machineColums} FROM Machines WHERE macAddress = ?;`;
+
+    // 업체 조회
+    let companyColums = db.colum('tel', 'name', 'email');
+    let companyFindQuery = `SELECT ${companyColums} FROM Companys WHERE id = ?;`;
 
     // 장비 상품조회
-    let productsColums = db.colum('*');
+    let productsColums = db.colum('productId, name, description, serviceTime, price');
     let productsFindQuery = `SELECT ${productsColums} FROM MachineProducts 
     LEFT JOIN Products ON MachineProducts.productId = Products.Id
     WHERE machineId = ?`;
@@ -23,44 +28,44 @@ router.get('/:macAddress', (req, res) => {
     let typeFindQuery = `SELECT ${typeColums} FROM MachineTypes WHERE id = ?`;
 
     // 현 장비의 이벤트 목록
-    let eventColums = db.colum('*');
-    let evnetFindQuery = `SELECT ${eventColums} FROM Events WHERE machineType = ?`
+    // let eventColums = db.colum('id, title, description, start_at, end_at');
+    // let evnetFindQuery = `SELECT ${eventColums} FROM Events WHERE machineType = ? OR machineType = -1`;
 
-    // 장치 DB 조회
-    db.query(machineFindQuery, [id], 'Not Service Machine')
-        // 장치정보를 찾았다면
-        .flatMap(machine => {
-            let productsObserver = db.query(productsFindQuery, [machine.id]);
-            let typeObserver = db.query(typeFindQuery, [machine.typeId]).toArray();
-            let eventsObserver = db.query(evnetFindQuery, [machine.typeId]).toArray();
-            return Observable.zip(productsObserver, typeObserver, eventsObserver,
-                (products, type, events) => {
-                    machine.type = type;
-                    let isRunning = machine.isRunning == true;
-                    delete machine.prodcutId;
-                    delete machine.isRunning;
+    // 장비 데이터 가져오기
+    db.query(machineFindQuery, [macAddress], 'NOT FOUND DEVICE')
+        .flatMap(device => {
+            return Observable.zip(
+                // 업체검색
+                db.query(companyFindQuery, [device.companyId]),
+                // 상품검색
+                db.query(productsFindQuery, [device.id]).toArray(),
+                // 장치타입 조회
+                db.query(typeFindQuery, [device.typeId]),
+                // 이벤트 목록 조회
+                // db.query(evnetFindQuery, [device.typeId])
+                //     .toArray()
+                //     .map(events => cleanArray(events))
+                //     .map(events => { if(events.length == 0) { return null } else { return events; } }),
+                (company, products, type) => {
+                    delete device.companyId;
+                    delete device.typeId;
+                    
+                    let running = device.isRunning;
+                    device.type = type.name;
+
+                    delete device.isRunning;
                     return {
-                        machine: machine,
+                        company: company,
+                        machine: device,
                         products: products,
-                        events: events,
-                        isRunning: isRunning
+                        isRunning: running
                     }
-                });
+                })
         })
         .subscribe(
-        results => {
-            res.status(200).json(results);
-        },
-        err => {
-            if (err == 'Not Service Machine') {
-                let error = {
-                    message: '등록된 장치가 없습니다'
-                }
-                res.status(404).json({ message: '서비스 가능한 장치가 아닙니다' });
-            } else {
-                res.status(500).json(err);
-            }
-        });
+            results => { res.status(200).json(results); },
+            err => { res.status(500).json(err); }
+        );
 });
 
 // 장치 등록
@@ -98,11 +103,11 @@ router.post('/', (req, res) => {
             let machineConfigQuery = `INSERT INTO MachineConfig SET ?`;
 
             // 장치 동작 설정 업데이트
-            return db.update(machineConfigQuery, machineConfigParams)
+            return db.update(machineConfigQuery, machineConfigParams);
         })
         .subscribe(
-        success => { res.status(200).json(success); },
-        err => { res.status(500).json(err); }
+            success => { res.status(200).json(success); },
+            err => { res.status(500).json(err); }
         );
 });
 

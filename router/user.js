@@ -5,6 +5,8 @@ const iamport = require('../module/PaymentModule');
 const event = require('../module/EventModule');
 const dateformat = require('../module/DateConvertModule');
 const uuid = require('uuid/v4');
+const cleanArray = require('clean-array');
+const IamportError = require('iamporter').IamporterError;
 
 // 회원정보 가져오기
 router.get('/:id', (req, res) => {
@@ -16,8 +18,8 @@ router.get('/:id', (req, res) => {
     db.query(query, [id], '유저 없음')
         .take(1)
         .subscribe(
-        user => { res.json(user); },
-        err => { res.json(err); }
+            user => { res.json(user); },
+            err => { res.json(err); }
         );
 });
 
@@ -29,22 +31,22 @@ router.post('/login', (req, res) => {
 
     getUser(flatform, token)
         .subscribe(
-        user => {
-            // 로그인 정보와 회원정보가 둘다 있는 경우
-            res.status(200).json(user);
-        },
-        err => {
-            if (err == 'Not Access User') {
-                // 로그인 정보가 없는 경우
-                res.status(403).json({ message: 'Not Access User' });
-            } else if (err == 'NotSigned User') {
-                // 로그인 정보는 있지만 회원가입이 이루어지지 않은 경우
-                res.status(404).json({ message: 'Not Signed User' });
-            } else {
-                // 서버의 오류가 발생한 경우
-                res.status(500).json({ message: 'Server Error' });
-            }
-        });
+            user => {
+                // 로그인 정보와 회원정보가 둘다 있는 경우
+                res.status(200).json(user);
+            },
+            err => {
+                if (err == 'Not Access User') {
+                    // 로그인 정보가 없는 경우
+                    res.status(403).json({ message: 'Not Access User' });
+                } else if (err == 'NotSigned User') {
+                    // 로그인 정보는 있지만 회원가입이 이루어지지 않은 경우
+                    res.status(404).json({ message: 'Not Signed User' });
+                } else {
+                    // 서버의 오류가 발생한 경우
+                    res.status(500).json({ message: 'Server Error' });
+                }
+            });
 });
 
 // 플래폼과 토큰으로 사용자정보 가져오기
@@ -119,13 +121,13 @@ router.post('/', (req, res) => {
             return getUser(req.body.flatform, req.body.token);
         })
         .subscribe(
-        user => {
-            // 사용자 정보를 출력한다
-            res.status(200).json(user);
-        },
-        err => {
-            res.status(500).json({ message: 'Server Error' });
-        }
+            user => {
+                // 사용자 정보를 출력한다
+                res.status(200).json(user);
+            },
+            err => {
+                res.status(500).json({ message: 'Server Error' });
+            }
         );
 });
 
@@ -157,12 +159,12 @@ router.delete('/:flatform/:token', (req, res) => {
             });
         })
         .subscribe(
-        state => {
-            res.status(200).json({ result: true });
-        },
-        err => {
-            res.status(500).json({ message: 'Server Error' });
-        }
+            state => {
+                res.status(200).json({ result: true });
+            },
+            err => {
+                res.status(500).json({ message: 'Server Error' });
+            }
         )
 });
 
@@ -198,8 +200,8 @@ router.post('/:userId/card', (req, res) => {
             return db.query(cardSelectQuery, [insertId], '카드 등록 오류')
         })
         .subscribe(
-        card => { res.status(200).json(card); },
-        err => { res.status(500).json(err); }
+            card => { res.status(200).json(card); },
+            err => { res.status(500).json(err); }
         );
 });
 
@@ -222,8 +224,8 @@ router.delete('/card/:cardId', (req, res) => {
             return db.update(cardDeleteQuery, null);
         })
         .subscribe(
-        result => { res.status(200).json({ message: '카드가 성공적으로 삭제되었습니다' }); },
-        err => { res.status(500).json(err); }
+            result => { res.status(200).json({ message: '카드가 성공적으로 삭제되었습니다' }); },
+            err => { res.status(500).json(err); }
         );
 });
 
@@ -238,19 +240,151 @@ router.post('/:userId/payment', (req, res) => {
     // 입력 파라미터 정보
     let userId = req.params.userId;
     let cardId = req.body.cardId;
-    let companyId = req.body.companyId;
     let machineId = req.body.machineId;
     let productId = req.body.productId;
-    let eventId = req.body.eventId;
+    let amount = req.body.amount;
 
     // 결제번호
     let paymentNumber = uuid();
 
-    // 빌링키 가져오기
-    let cardSelectQuery = `SELECT billingKey FROM Cards WHERE id = ${cardId}`;
-    let cardNotFoundError = { message: '존재하지 않는 카드입니다' };
-    let billingKeyGetObserver = db.query(cardSelectQuery, null, cardNotFoundError)
-        .map(card => { return card.billingKey; });
+    // 장치정보 가져오기
+    let deviceFindQuery = `SELECT * FROM Machines WHERE id = ?;`;
+    let deviceFindObserver = db.query(deviceFindObserver);
+
+    // 카드 정보 가져오기
+    let cardSelectQuery = `SELECT * FROM Cards WHERE id = ${cardId}`;
+    let cardGetObserver = db.query(cardSelectQuery, null, 'NOT FOUND CARD');
+
+    // 오픈 이벤트 대상자 검색
+    let eventTargetQuery = `SELECT COUNT(eventId) as count Payments WHERE userId = ?`;
+    let eventTargetObserver = db.query(eventTargetObserver, [userId])
+        .map(result => { return result.count < 3; });
+
+    // 결제 내역 등록
+    let paymentAppendQuery = `INSERT INTO Payments SET ?`;
+
+    // 포인트 적립
+    let pointAppendQuery = `UPDATE Users SET point = point + ? WHERE id = ?`;
+
+    // 결제등록을 위한 정보 가져오기
+    Observable.zip(deviceFindObserver, cardGetObserver, eventTargetObserver,
+        (device, card, target) => {
+            let eventId = target ? 1 : null;
+            let eventAmount = target ? 0 : amount;
+            return {
+                // 결제이후 삭제
+                billingKey: card.billingKey,
+                // 이벤트 확인 이후 
+                target: target,
+                ///////////
+                userId: userId,
+                companyId: device.companyId,
+                cardId: card.id,
+                eventId: eventId,
+                machineId: device.id,
+                productId: productId,
+                defaultPrice: amount,
+                amount: eventAmount,
+                pay_at: dateformat.dateFormat(Date())
+            };
+        })
+        .flatMap(info => {
+            // 결제하기
+            let billingKey = info.billingKey;
+            delete info.billingKey;
+
+            info.id = uuid();
+            // 이벤트가로 결제를 할 필요가 없다면
+            if (info.amount == 0) {
+                return Observable.of(info);
+            } else {
+                return iamport.payment(billingKey, info.id, info.amount)
+                    .map(result => {
+                        return info;
+                    })
+            }
+        })
+        .flatMap(info => {
+            let isEvent = info.target;
+            // 결제가 완료되었다면 포인트 적립과 DB에 기록을 한다
+            let insertDB = db.update(paymentAppendQuery, [info])
+            if (target) {
+                // 이벤트로 결제된 사항은 포인트를 누적하지 않음
+                return insertDB.map(result => { return info });
+            } else {
+                // 일반결제시에는 포인트 누적 10%
+                let point = info.amount * 0.1;
+                let pointAppendObserver = db.update(pointAppendQuery, [point]);
+                return Observable.zip(insertDB, pointAppendObserver, (payments, points) => {
+                    return info;
+                });
+            }
+        })
+        .subscribe(
+            info => {
+                res.status(200).json({ result: 'sucess' });
+            },
+            err => {
+                let code = 500;
+                if (err instanceof IamporterError) {
+                    code = 400;
+                }
+
+                res.status(code).json({
+                    result: 'error',
+                    message: err
+                });
+            }
+        );
+    //////////////////////////////////////////////////////////////////////////////
+    // 카드정보와 이벤트 대상자 조회
+    Observable.zip(cardGetObserver, eventTargetObserver,
+        (card, target) => {
+            // 카드정보와 이벤트대상자를 구별하여 하나의 객체로 생성
+            return {
+                // 상품번호
+                customerId: uuid(),
+                billingKey: card.billingKey,
+                eventTarget: target,
+                amount: amount
+            }
+        })
+        .flatMap(info => {
+            // 결제처리
+            return iamport.payment(info.billingKey, info.customerId, info.amount)
+                .map(result => info);
+        })
+        .flatMap(info => {
+            // 결제 등록과 포인트 적립
+            let point = 0;
+            if (!info.eventTarget) {
+                point = info.amount * 0.1;
+            }
+
+            // 결제 등록 필드
+            let paymentInsertData = {
+                userId: userId,
+                companyId: companyId,
+                cardId: cardId,
+                eventId: eventId,
+                machineId: machineId,
+                productId: productId,
+                defaultPrice: info.defaultPrice,
+                amount: info.totalAmount,
+                pay_at: dateformat.dateFormat(Date())
+            }
+            let pointAppendObserver = db.update(pointAppendQuery, [userId, point]);
+            return db.update(pointAppendQuery, [userId, point])
+
+        })
+        .subscribe(
+            result => {
+
+            },
+            err => {
+                if (err == '')
+                res.status(500).json()
+            });
 
     // 대상 이벤트 체크
     let eventInfoPriceObserver = event.eventCheck(productId, eventId, userId);
@@ -289,6 +423,39 @@ router.post('/:userId/payment', (req, res) => {
             payment => { res.status(200).json(payment); },
             err => { res.status(500).json(err); }
         )
+});
+
+// 회원의 결제 내역 가져오기
+router.get('/:userId/payment', (req, res) => {
+    let userId = req.params.userId;
+
+    // let colum = db.colum('*');
+    let colum = db.colum(
+        'Payments.amount as amount',
+        'Payments.pay_at as pay_at',
+        'Machines.displayName as machineName',
+        'Products.name as productName'
+    );
+
+    let query = `SELECT ${colum} FROM Payments 
+    LEFT OUTER JOIN Machines ON Machines.id = Payments.machineId 
+    LEFT OUTER JOIN Cards ON Cards.id = Payments.cardId
+    LEFT OUTER JOIN Products ON Products.id = Payments.productId
+    WHERE Payments.userId = ${userId};`;
+
+    db.query(query)
+        .toArray()
+        .map(item => { return cleanArray(item); })
+        .subscribe(
+            item => {
+                if (item.length == 0) {
+                    res.status(404).json(item);
+                } else {
+                    res.status(200).json(item);
+                }
+            },
+            err => { res.status(500).json(err); }
+        );
 });
 
 module.exports = router;
