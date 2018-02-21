@@ -32,9 +32,9 @@ function registCard(customer_uid, card_number, expiry, birth, pwd_2digit) {
         let expiryReg = /\d{4}-\d{2}/;
         let birthReg = /\d{6}/;
 
-        let validation = cardNumberReg.exec(card_number) !== null
-            && expiryReg.exec(expiry) !== null
-            && birthReg.exec(birth) !== null;
+        let validation = cardNumberReg.exec(card_number)
+            && expiryReg.exec(expiry) 
+            && birthReg.exec(birth);
         
         // 입력폼이 맞지 않는경우
         if (!validation) {

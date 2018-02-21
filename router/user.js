@@ -6,7 +6,7 @@ const event = require('../module/EventModule');
 const dateformat = require('../module/DateConvertModule');
 const uuid = require('uuid/v4');
 const cleanArray = require('clean-array');
-const IamportError = require('iamporter').IamporterError;
+const IamporterError = require('iamporter').IamporterError;
 
 // 회원정보 가져오기
 router.get('/:id', (req, res) => {
@@ -36,9 +36,10 @@ router.post('/login', (req, res) => {
                 res.status(200).json(user);
             },
             err => {
-                if (err == 'Not Access User') {
+                console.log(err);
+                if (err == 'Not Found User') {
                     // 로그인 정보가 없는 경우
-                    res.status(403).json({ message: 'Not Access User' });
+                    res.status(403).json({ message: 'Not Found User' });
                 } else if (err == 'NotSigned User') {
                     // 로그인 정보는 있지만 회원가입이 이루어지지 않은 경우
                     res.status(404).json({ message: 'Not Signed User' });
@@ -60,11 +61,11 @@ function getUser(flatform, token) {
     let userFindQuery = `SELECT ${userColums} FROM Users WHERE id = ?`;
 
     // 회원 카드 정보
-    let cardColums = db.colum('*');
-    let cardFindQuery = `SELECT * FROM Cards WHERE userId = ?`;
+    let cardColums = db.colum('id, bankName, displayName, create_at');
+    let cardFindQuery = `SELECT ${cardColums} FROM Cards WHERE userId = ?`;
 
     // DB에서 회원 로그인 정보를 찾고,
-    return db.query(signinQuery, [queryParams], 'Not Access User')
+    return db.query(signinQuery, [queryParams], 'Not Found User')
         .flatMap(sign => {
             // 로그인 정보가 있다면 추가 회원정보를 로드
             let userId = sign.userId;
@@ -75,12 +76,17 @@ function getUser(flatform, token) {
             // 회원정보와 카드정보를 병합
             return Observable.zip(
                 Observable.of(user),
-                db.query(cardFindQuery, [user.id]).toArray(),
+                db.query(cardFindQuery, [user.id]).toArray()
+                    .map(cards => { 
+                        let myCard = cleanArray(cards);
+                        if (myCard.length == 0) {
+                            return null;
+                        } else {
+                            return cleanArray(cards);
+                        }}),
                 (user, cards) => {
-                    return {
-                        user: user,
-                        cards: cards
-                    }
+                    user.cards = cards;
+                    return user;
                 }
             )
         });
@@ -88,28 +94,34 @@ function getUser(flatform, token) {
 
 // 회원가입
 router.post('/', (req, res) => {
+    let flatform = req.body.flatform;
+    let token = req.body.token;
+    
     // 회원 상세정보 등록
-    let insertColums = db.colum('email', 'name', 'gender', 'profileImage', 'thumbnailImage', 'create_at');
-    let insertQuery = `INSERT INTO Users (${insertColums}) VALUES ?`;
-    let insertValue = [
-        req.body.email, req.body.name, req.body.gender,
-        req.body.profileImage, req.body.thumbnailImage,
-        'NOW()'
-    ];
+    let insertQuery = `INSERT INTO Users SET ?`;
+    let insertValue = {
+        name:req.body.name, 
+        gender: req.body.gender,
+        profileImage: req.body.profileImage, 
+        thumbnailImage: req.body.thumbnailImage,
+        create_at: new Date()
+    };
 
     // 회원 로그인 정보 등록
     let insertLoginColums = db.colum('hash', 'flatform', 'userId', 'create_at');
-    let insertLoginQuery = `INSERT INTO SocialLogin (${insertLoginColums}) VALUES ?`;
+    let insertLoginQuery = `INSERT INTO SocialLogin SET ?`;
 
     // 회원 정보를 등록 이후
-    db.update(insertQuery, insertValue)
+    db.update(insertQuery, insertValue, 'Already Signed User')
         .flatMap(info => {
             // 로그인 상태정보를 등록한다
             let insertId = info.insertId;
-            let insertLoginValue = [
-                `${req.body.flatform}:${req.body.token}`, req.body.flatform,
-                insertId, 'NOW()'
-            ];
+            let insertLoginValue = {
+                hash: `${flatform}:${token}`, 
+                flatform: flatform,
+                userId: insertId, 
+                create_at: new Date()
+            };
 
             let inserLoginObserver = db.update(insertLoginQuery, insertLoginValue);
             return Observable.zip(Observable.of(insertId), inserLoginObserver, (userId, inserted) => {
@@ -118,7 +130,7 @@ router.post('/', (req, res) => {
         })
         .flatMap(userId => {
             // 등록 이후 회원정보를 로드
-            return getUser(req.body.flatform, req.body.token);
+            return getUser(flatform, token);
         })
         .subscribe(
             user => {
@@ -126,7 +138,7 @@ router.post('/', (req, res) => {
                 res.status(200).json(user);
             },
             err => {
-                res.status(500).json({ message: 'Server Error' });
+                res.status(400).json({ message: '이미 가입된 계정입니다' });
             }
         );
 });
@@ -174,18 +186,21 @@ router.post('/:userId/card', (req, res) => {
     // 등록될 빌링키
     let billingKey = uuid();
 
+    console.log(billingKey, req.body.card_number,
+        req.body.expiry, req.body.birth, req.body.pwd_2digit);
     // 아임포트로부터 빌링키 발급
     iamport.registCard(
         billingKey, req.body.card_number,
         req.body.expiry, req.body.birth, req.body.pwd_2digit)
         .flatMap(result => {
+            console.log(result);
             // 빌링키가 성공적으로 발급됬다면
             let cardInsertParams = {
                 userId: userId,
-                billingKey: billingKey,
-                bankName: result.card_name,
+                billingKey: result.data.customer_uid,
+                bankName: result.data.card_name,
                 displayName: req.body.displayName,
-                create_at: Date()
+                create_at: new Date()
             }
             let cardInsertQuery = `INSERT INTO Cards SET ?`;
 
@@ -193,23 +208,38 @@ router.post('/:userId/card', (req, res) => {
             return db.update(cardInsertQuery, cardInsertParams)
         })
         .flatMap(result => {
+            console.log(result);
             let insertId = result.insertId;
-            let cardSelectQuery = `SELECT * FROM Cards WHERE id = ?`;
+            let colum = db.colum('id', 'bankName', 'displayName', 'create_at');
+            let cardSelectQuery = `SELECT ${colum} FROM Cards WHERE id = ?`;
 
             // 카드 정보 가져오기
             return db.query(cardSelectQuery, [insertId], '카드 등록 오류')
         })
         .subscribe(
-            card => { res.status(200).json(card); },
-            err => { res.status(500).json(err); }
+            card => {
+
+                res.status(200).json(card);
+            },
+            err => {
+                console.log("err : " + err);
+                if (err == 'Validation Execption') {
+                    res.status(400).json(err);
+                } else if (err instanceof IamporterError) {
+                    res.status(400).json(err.IamporterError);
+                } else {
+                    res.status(500).json(err);
+                }
+            }
         );
 });
 
 // 사용자 카드삭제
-router.delete('/card/:cardId', (req, res) => {
+router.delete('/:userId/card/:cardId', (req, res) => {
+    let userId = req.params.userId;
     let cardId = req.params.cardId;
     let cardColums = db.colum('userId', 'billingKey');
-    let cardSelectQuery = `SELECT ${cardColums} Cards WHERE id = ${cardId}`;
+    let cardSelectQuery = `SELECT ${cardColums} FROM Cards WHERE id = ${cardId}`;
 
     db.query(cardSelectQuery, null, { message: '등록된 카드가 아닙니다' })
         .flatMap(card => {
@@ -249,19 +279,21 @@ router.post('/:userId/payment', (req, res) => {
 
     // 장치정보 가져오기
     let deviceFindQuery = `SELECT * FROM Machines WHERE id = ?;`;
-    let deviceFindObserver = db.query(deviceFindObserver);
+    let deviceFindObserver = db.query(deviceFindQuery, [machineId]);
 
     // 카드 정보 가져오기
     let cardSelectQuery = `SELECT * FROM Cards WHERE id = ${cardId}`;
     let cardGetObserver = db.query(cardSelectQuery, null, 'NOT FOUND CARD');
 
     // 오픈 이벤트 대상자 검색
-    let eventTargetQuery = `SELECT COUNT(eventId) as count Payments WHERE userId = ?`;
-    let eventTargetObserver = db.query(eventTargetObserver, [userId])
-        .map(result => { return result.count < 3; });
+    let eventTargetQuery = `SELECT COUNT(eventId) as count FROM Payments WHERE userId = ?;`;
+    let eventTargetObserver = db.query(eventTargetQuery, [userId])
+        .map(result => { 
+            console.log(result);
+            return result.count < 3; });
 
     // 결제 내역 등록
-    let paymentAppendQuery = `INSERT INTO Payments SET ?`;
+    let paymentAppendQuery = `INSERT INTO Payments SET ?;`;
 
     // 포인트 적립
     let pointAppendQuery = `UPDATE Users SET point = point + ? WHERE id = ?`;
@@ -271,6 +303,8 @@ router.post('/:userId/payment', (req, res) => {
         (device, card, target) => {
             let eventId = target ? 1 : null;
             let eventAmount = target ? 0 : amount;
+
+            console.log(device, target);
             return {
                 // 결제이후 삭제
                 billingKey: card.billingKey,
@@ -285,7 +319,7 @@ router.post('/:userId/payment', (req, res) => {
                 productId: productId,
                 defaultPrice: amount,
                 amount: eventAmount,
-                pay_at: dateformat.dateFormat(Date())
+                pay_at: dateformat.dateFormat(new Date())
             };
         })
         .flatMap(info => {
@@ -306,15 +340,16 @@ router.post('/:userId/payment', (req, res) => {
         })
         .flatMap(info => {
             let isEvent = info.target;
+            delete info.target;
             // 결제가 완료되었다면 포인트 적립과 DB에 기록을 한다
-            let insertDB = db.update(paymentAppendQuery, [info])
-            if (target) {
+            let insertDB = db.update(paymentAppendQuery, info);
+            if (isEvent) {
                 // 이벤트로 결제된 사항은 포인트를 누적하지 않음
                 return insertDB.map(result => { return info });
             } else {
                 // 일반결제시에는 포인트 누적 10%
                 let point = info.amount * 0.1;
-                let pointAppendObserver = db.update(pointAppendQuery, [point]);
+                let pointAppendObserver = db.update(pointAppendQuery, [point, userId]);
                 return Observable.zip(insertDB, pointAppendObserver, (payments, points) => {
                     return info;
                 });
@@ -325,15 +360,18 @@ router.post('/:userId/payment', (req, res) => {
                 res.status(200).json({ result: 'sucess' });
             },
             err => {
-                let code = 500;
+                console.log(err);
                 if (err instanceof IamporterError) {
-                    code = 400;
+                    res.status(400).json({
+                        result: 'error',
+                        message: err
+                    });
+                } else {
+                    res.status(500).json({
+                        result: 'error',
+                        message: err
+                    });
                 }
-
-                res.status(code).json({
-                    result: 'error',
-                    message: err
-                });
             }
         );
 });
