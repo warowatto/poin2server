@@ -357,14 +357,19 @@ router.post('/:userId/payment', (req, res) => {
         })
         .subscribe(
             info => {
-                res.status(200).json({ result: 'sucess' });
+                res.status(200).json(info);
             },
             err => {
-                console.log(err);
+                
                 if (err instanceof IamporterError) {
+                    console.log(err);
+                    console.log(err.status); // HTTP STATUS CODE
+                    console.log(err.message); // 아임포트 API 응답 메시지 혹은 Iamporter 정의 메시지
+                    console.log(err.data); // 아임포트 API 응답 데이터
+                    console.log(err.raw); // 아임포트 API RAW DATA
                     res.status(400).json({
                         result: 'error',
-                        message: err
+                        message: err.message
                     });
                 } else {
                     res.status(500).json({
@@ -374,6 +379,13 @@ router.post('/:userId/payment', (req, res) => {
                 }
             }
         );
+});
+
+router.post('/payback', (req, res) => {
+    let paymentId = req.body.paymentId;
+    
+    let removePayments = 
+        `DELETE FROM Payments WHERE id = ?`;
 });
 
 // 회원의 결제 내역 가져오기
