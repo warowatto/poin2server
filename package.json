@@ -4,7 +4,7 @@
   "description": "poin api server",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js",
+    "start": "nodemon app.js",
     "test": "node app.js"
   },
   "keywords": [
